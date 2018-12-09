@@ -1,6 +1,6 @@
 ---
 title: "STUDY OF DIFFERENT CLASSIFICATION ALGORITHMS FOR PREDICTING BANKRUPTCY"
-author: "Vaibhav Gokhale"
+author: "SP"
 date: "November 16, 2017"
 output: html_document
 ---
@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 rm(list = ls(all=T))
-setwd("F:/DataAnalytics/INSOFE/Tests/CUTe4/Rcode/")
+
 ```
 
 Load the required libraries

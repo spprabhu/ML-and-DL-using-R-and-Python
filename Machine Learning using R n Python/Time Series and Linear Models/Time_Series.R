@@ -1,9 +1,6 @@
 #############################################################
-# CUTe 2 Team 20
-# Vaibhav Gokhale
-# Vignesh K
-# Venkata Pavan
-############################################################
+
+
 
 
 ## Remove the existing variables

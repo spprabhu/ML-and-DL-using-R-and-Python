@@ -1,0 +1,639 @@
+---
+title: "STUDY OF DIFFERENT CLASSIFICATION ALGORITHMS FOR PREDICTING BANKRUPTCY"
+author: "Vaibhav Gokhale"
+date: "November 16, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list = ls(all=T))
+setwd("F:/DataAnalytics/INSOFE/Tests/CUTe4/Rcode/")
+```
+
+Load the required libraries
+```{r}
+library(DMwR)
+library(caret)
+library(glmnet)
+library(ROSE)
+library(xgboost)
+library(rpart)
+library(doParallel)
+library(e1071)
+library(randomForest)
+library(MASS)
+library(ROCR)
+library(C50)
+```
+
+Import the train and test data
+```{r}
+data_train <- read.csv("traindata.csv",header = T,na.strings = "NA")
+data_test <- read.csv("testdata.csv",header = T,na.strings = "NA")
+```
+
+Check missing values
+```{r}
+sum(is.na(data_train))/(nrow(data_train)*ncol(data_train))
+sum(is.na(data_test))/(nrow(data_test)*ncol(data_test))
+
+mis_col <- function(df){
+  cols <- sort(colSums(is.na(df)),decreasing = T)
+  cols <- cols[cols!=0]
+  print(cols)
+  print(cols/nrow(df)*100)
+}
+
+mis_col(data_train)
+```
+
+```{r}
+mis_col(data_test)
+```
+
+Impute the missing values, remove unncessary variables and do feature engineering.
+```{r}
+test_ID <- data_test$ID
+
+data_train$ID <- NULL
+data_test$ID <- NULL
+
+# delete the variable Attr37
+data_train$Attr37 <- NULL
+data_test$Attr37 <- NULL 
+
+# New feature with number of missing values
+data_train$nmiss <- apply(data_train,1,function(x)(sum(is.na(x))))
+data_test$nmiss <- apply(data_test,1,function(x)(sum(is.na(x))))
+
+data_train_imputed <- centralImputation(data_train)
+data_test_imputed <- centralImputation(data_test)
+```
+
+Standardize the data
+```{r}
+preproc <- preProcess(data_train_imputed[,!(names(data_train) %in% "target")],method = c("center","scale"))
+data_train_scaled <- predict(preproc,data_train_imputed)
+data_test_scaled <- predict(preproc,data_test_imputed)
+
+table(data_train_scaled$target)
+data_train_scaled$target <- as.factor(as.character(data_train_scaled$target))
+```
+
+Split the data into train and validation data
+```{r}
+set.seed(123)
+rows <- createDataPartition(data_train_scaled$target,p = 0.7,list = F)
+train <- data_train_scaled[rows,]
+val <- data_train_scaled[-rows,]
+```
+
+Perform synthetic data sampling (Only for logistic regression)
+```{r}
+sample_train <- ROSE(target~.,data = train ,N = 10000)
+sample_train <- sample_train$data
+```
+
+## Logistic Regression
+```{r}
+logreg_basic <- glm(target~.,data = sample_train,family = "binomial")
+summary(logreg_basic)
+
+logreg_stepAIC <- stepAIC(logreg_basic)
+summary(logreg_stepAIC)
+
+## Plot the ROC curve and find the AUC value
+pred_train <- predict(logreg_stepAIC,train,type="response")
+pred <- prediction(predictions = pred_train,labels = train$target)
+perf <- ROCR::performance(pred,measure = "tpr",x.measure = "fpr")
+
+plot(perf,col=rainbow(5),colorsize=T,print.cutoffs.at=seq(0,1,0.1))
+
+## Finding AUC value
+perf_auc <- performance(pred, measure="auc")
+auc <- perf_auc@y.values[[1]]
+auc #0.7054595
+
+## Predict on the validation data
+pred_val <- predict(logreg_stepAIC,val,type = "response")
+pred_val <- ifelse(pred_val>0.5,"1","0")
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.1084906 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.8188961 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.8003648 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.1736504 
+
+
+# Predict on the test Data
+pred_test <- predict(logreg_stepAIC,data_test_scaled)
+pred_test <- ifelse(pred_test > 0.5,"1","0")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+
+## Decision Trees on the original unbalanced data using CART
+```{r}
+# decision trees with unbalanced original sample
+reg_tree <- rpart(target~.,train,method = "class",control = rpart.control(cp = 0.0001))
+
+plotcp(reg_tree)
+cptable <- data.frame(reg_tree$cptable[,c(1,4)])
+cptable <- cptable[order(cptable$xerror),]
+cptable
+
+reg_tree1 <- rpart(target~.,train,method = "class",control = rpart.control(cp = cptable$CP[1]))
+
+## Predict on the validation data
+pred_val <- predict(reg_tree,val,type = "class")
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.6768802 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.9888846 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.9633379 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.5294694
+
+# Predict on the test Data
+pred_test <- predict(reg_tree1,data_test_scaled,type = "class")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+## Decision Trees on the original unbalanced data using C5
+```{r}
+# decision trees with unbalanced original sample
+C5_tree <- C5.0(target~.,train)
+
+# plot(C5_tree)
+
+## Predict on the validation data
+pred_val <- predict(C5_tree,val)
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.6768802 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.9888846 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.9633379 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.5294694 
+
+
+# Predict on the test Data
+pred_test <- predict(C5_tree,data_test_scaled)
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+
+## Decision Trees on the synthetically balanced sample data
+```{r}
+# decision trees with unbalanced original sample
+reg_tree <- rpart(target~.,sample_train,method = "class",control = rpart.control(cp = 0.0001))
+
+plotcp(reg_tree)
+cptable <- data.frame(reg_tree$cptable[,c(1,4)])
+cptable <- cptable[order(cptable$xerror),]
+cptable
+
+reg_tree1 <- rpart(target~.,sample_train,method = "class",control = rpart.control(cp = cptable$CP[1]))
+
+## Predict on the validation data
+pred_val <- predict(reg_tree1,val,type = "class")
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.04773226 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.002108087 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.0496124 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.0860208
+
+# Predict on the test Data
+pred_test <- predict(reg_tree1,data_test_scaled,type = "class")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+## Random Forests on the original unbalanced data
+```{r}
+# decision trees with unbalanced original sample
+rf <- randomForest(target~.,train)
+
+## Predict on the validation data
+pred_val <- predict(rf,val,type = "class")
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.8409091 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.997317 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.9626995 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.5731991
+
+# Predict on the test Data
+pred_test <- predict(rf,data_test_scaled,type = "class")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+
+## Tuned Random Forests on the original unbalanced data
+```{r}
+train1 <- train
+registerDoParallel(4)
+train1$target <- as.factor(as.character(make.names(train1$target)))
+control <- trainControl(method = "cv",number = 5,search = "grid",classProbs = T,summaryFunction = twoClassSummary)
+set.seed(123)
+tunegrid <- expand.grid(mtry=c(5,8,10,12,15))
+rf_tune_random <- train(target~.,data = train1, method="rf",metric="ROC",tuneGrid=tunegrid,trControl=control,sampsize=10000)
+print(rf_tune_random)
+plot(rf_tune_random)
+
+
+tunegrid <- expand.grid(mtry=c(15,20,25))
+rf_tune_random1 <- train(target~.,data = train1, method="rf",metric="ROC",tuneGrid=tunegrid,trControl=control,sampsize=5000)
+print(rf_tune_random1)
+plot(rf_tune_random1)
+
+
+## Predict on the validation data
+pred_val <- predict(rf_tune_random,val,type = "raw")
+pred_val <- ifelse(pred_val=="X0","0","1")
+table(pred_val)
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 1 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 1 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.9620611 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.6060606 
+
+
+# Predict on the test Data
+pred_test <- predict(rf_tune_random1,data_test_scaled,type = "raw")
+pred_test <- ifelse(pred_test=="X0","0","1")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+## Tune the parameters of the xgboost algorithm
+```{r}
+registerDoParallel(4)
+
+ind_attr <- setdiff(names(train1),"target")
+
+x <- train1[,ind_attr]
+y <- train1$target
+
+trctrl <- trainControl(method = "cv",number = 5,search = "grid",
+                       allowParallel = T,classProbs = T,
+                       summaryFunction = twoClassSummary)
+## Tune 1
+tunegrid <- expand.grid(max_depth=c(1,3,5),
+                        eta=0.1,
+                        nrounds = c(15,50,100),
+                        gamma = 1,
+                        min_child_weight = 1,
+                        subsample = 0.75,
+                        colsample_bytree=0.75
+                        )
+set.seed(123)
+
+xgb_tune1 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune1)
+
+## Tune 2
+
+tunegrid <- expand.grid(max_depth=c(1,3,5),
+                        eta=0.1,
+                        nrounds = c(100,150,200),
+                        gamma = 1,
+                        min_child_weight = 1,
+                        subsample = 0.75,
+                        colsample_bytree=0.75
+                        )
+xgb_tune2 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune2)
+
+## Tune 3
+tunegrid <- expand.grid(max_depth=c(5,7,9),
+                        eta=0.1,
+                        nrounds = c(200,250),
+                        gamma = 1,
+                        min_child_weight = 1,
+                        subsample = 0.75,
+                        colsample_bytree=0.75
+                        )
+xgb_tune3 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune3)
+
+## Tune 4
+tunegrid <- expand.grid(max_depth=c(7),
+                        eta=0.1,
+                        nrounds = c(250),
+                        gamma = c(1,5,20),
+                        min_child_weight = 1,
+                        subsample = c(0.5,0.75),
+                        colsample_bytree=c(0.5,0.75)
+                        )
+xgb_tune4 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune4)
+
+## Tune 5
+tunegrid <- expand.grid(max_depth=c(7),
+                        eta=0.1,
+                        nrounds = c(250),
+                        gamma = c(1),
+                        min_child_weight = 1,
+                        subsample = c(0.75,0.9),
+                        colsample_bytree=c(0.75,0.9)
+                        )
+xgb_tune5 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune5)
+
+
+pred_val <- predict(xgb_tune5,val,type = "raw")
+pred_val <- ifelse(pred_val=="X0","0","1")
+table(pred_val)
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+## Tune 6
+
+tunegrid <- expand.grid(max_depth=c(7),
+                        eta=0.1,
+                        nrounds = c(250),
+                        gamma = c(1),
+                        min_child_weight = c(1,2,5),
+                        subsample = c(0.9,1),
+                        colsample_bytree=c(0.9,1)
+                        )
+xgb_tune6 <- train(x,y,
+                   method="xgbTree",tuneGrid=tunegrid,
+                   trControl=trctrl,
+                   metric="ROC",
+                   objective="binary:logistic")
+
+plot(xgb_tune6)
+
+
+pred_val <- predict(xgb_tune6,val,type = "raw")
+pred_val <- ifelse(pred_val=="X0","0","1")
+table(pred_val)
+
+## Evaluation metrics
+conf_matrix <- table(val$target,pred_val)
+conf_matrix
+TP=conf_matrix["1","1"]
+FP=conf_matrix["0","1"]
+TN=conf_matrix["0","0"]
+FN=conf_matrix["1","0"]
+Recall <- TP/(TP+FN)
+Precision <- TP/(TP+FP)
+Specificity <- TN/(TN+FP)
+Accuracy <- (TP+TN)/(TN+TP+FP+FN)
+F1score <- 2*Precision*TPrate/(Precision+TPrate)
+
+cat("\nTrue Positive rate/Recall/Sensitivity\t",TPrate,"\n")
+cat("Precision\t",Precision,"\n")
+cat("Specificity\t",Specificity,"\n")
+cat("Accuracy\t",Accuracy,"\n")
+cat("F1 Score:\t",F1score,"\n")
+
+# True Positive rate/Recall/Sensitivity	 0.4347826 
+# > cat("Precision\t",Precision,"\n")
+# Precision	 0.9347826 
+# > cat("Specificity\t",Specificity,"\n")
+# Specificity	 0.9982752 
+# > cat("Accuracy\t",Accuracy,"\n")
+# Accuracy	 0.9736434 
+# > cat("F1 Score:\t",F1score,"\n")
+# F1 Score:	 0.5935128
+
+# Predict on the test data
+pred_test <- predict(xgb_tune5,as.matrix(data_test_scaled[,ind_attr]))
+pred_test <- ifelse(pred_test == "X0","0","1")
+
+answer_df = data.frame(ID=test_ID,prediction=pred_test)
+names(answer_df) <- c("ID","prediction")
+write.csv(answer_df,"submission.csv")
+```
+
+SVM-basic
+```{r}
+train2 <- train
+train2$target <- ifelse(train2$target=="0",-1,1)
+base_SVM=svm(target~.,data=train2, kernel = "linear")
+summary(base_SVM)
+
+##predict on the validation data
+pred_val <- predict(base_SVM,val)
+pred_val <- ifelse(pred_val<0,"0","1")
+confusionMatrix(pred_val,val$target,positive = "1")
+```
+
+
+
+c	                        Accuracy	Recall	Precision	Specificity	F-1 Score	F1 score	Precision2	Recall2
+KNN	                         0.97	0.26	0.04	0.97	0.07	-	-	-
+Logistic 	                0.8003648	0.4347826	0.1084906	0.8188961	0.1736504	0.09	0.06603774	0.1428571
+Decision Trees	          0.9667123	0.4347826	0.8534483	0.996742	0.5760838	22.09	0.1320755	0.6885246
+Decision Trees	          0.9692658	0.4347826	0.9102564	0.9979877	0.5884791	40.49	0.9425287	0.2578616
+Random Forest	            0.9626995	0.4347826	0.8409091	0.997317	0.5731991	40.68	88.42105	26.41509
+Tuned Random Forest	      0.9637027	0.4347826	1	1	0.6060606	42.18	100	26.72956
+"Boosted Trees (XGBoost)	0.9736434	0.4347826	0.9347826	0.9982752	0.5935128	53.51	95.93496	37.10692
+
+
+
+

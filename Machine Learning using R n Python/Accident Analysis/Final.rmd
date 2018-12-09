@@ -1,0 +1,263 @@
+---
+title: "PHD"
+author: "SP(assignment)"
+date: "6 April 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(grid)
+library(DMwR)
+library(stats)
+library(arm)
+library(MASS)
+library(car)
+library(corrplot)
+library(ROCR)
+library(gplots)
+library(corrplot)
+
+getwd()
+
+```
+```{r}
+##### Reading Data ######
+accident_data <-read.csv(file = "accident_data.csv")
+
+#str(accident_data)
+
+```
+
+
+```{R}
+#### Finding Number of Missing Values
+colSums(is.na(accident_data))
+
+table(colSums(is.na(accident_data)))
+
+```
+
+
+```{r}
+##### IMPUTING MISSING VALUES #####
+
+accident_data_imp<-accident_data
+
+library(lattice)
+library(grid)
+library(DMwR)
+accident_data_imp <-knnImputation(accident_data,k = 7, scale = T)
+
+
+```
+
+```{r}
+accident_data_fin<-accident_data_imp
+str(accident_data_fin)
+```
+
+```{r}
+colSums(is.na(accident_data_fin))
+
+table(colSums(is.na(accident_data_fin)))
+
+```
+
+
+```{r}
+######### BINNING OF LEVELS ######
+
+accident_data_fin$Day_of_Collision <-ifelse(accident_data_fin$Day_of_Collision %in% c("1","2","3","4","5","6","7"), "WEEK1",
+                                   ifelse(accident_data_fin$Day_of_Collision %in% c("8","9","10","11","12","13","14"), "WEEK2",
+                                          ifelse(accident_data_fin$Day_of_Collision %in% c("15","16","17","18","19","20","21"), "WEEK3",
+                                                 ifelse(accident_data_fin$Day_of_Collision %in% c("22","23","24","25","26","27","28"), "WEEK4", "WEEK5"))))
+
+accident_data_fin$Day_of_Collision <-as.factor(as.character(accident_data_fin$Day_of_Collision))
+
+
+
+accident_data_fin$Hour_of_Collision<-trunc(accident_data_fin$Hour_of_Collision)
+
+
+
+
+levels(accident_data_fin$Hour_of_Collision)
+accident_data_fin$Hour_of_Collision <-ifelse(accident_data_fin$Hour_of_Collision %in% c("1","2","3","4","5"), "Midnight",
+                                   ifelse(accident_data_fin$Hour_of_Collision %in% c("6","7","8","9","10"), "Morning",
+                                          ifelse(accident_data_fin$Hour_of_Collision %in% c("11","12","13","14","15"), "Afternoon",
+                                                 ifelse(accident_data_fin$Hour_of_Collision %in% c("16","17","18","19","20"), "Evening","Night"))))
+
+accident_data_fin$Hour_of_Collision<-as.factor(as.character(accident_data_fin$Hour_of_Collision))
+
+str(accident_data_fin$Day_of_Collision)
+str(accident_data_fin$Hour_of_Collision)
+
+```
+
+```{r}
+#### TRUNCATING DECIMALS AND CONVERTING VARIABLES TO CATEGORICAL ######
+
+
+accident_data_fin$Month_of_Collision<-trunc(accident_data_fin$Month_of_Collision)
+accident_data_fin$Junction_Detail<-trunc(accident_data_fin$Junction_Detail)
+
+
+
+
+#accident_data_fin$Day_of_Collision <-as.factor(as.character(accident_data_fin$Day_of_Collision))
+
+accident_data_fin$Month_of_Collision <-as.factor(as.character(accident_data_fin$Month_of_Collision))
+
+#accident_data_fin$Hour_of_Collision <-as.factor(as.character(accident_data_fin$Hour_of_Collision))
+
+accident_data_fin$Collision_Severity <-as.factor(as.character(accident_data_fin$Collision_Severity))
+
+accident_data_fin$Weekday_of_Collision <-as.factor(as.character(accident_data_fin$Weekday_of_Collision))
+
+accident_data_fin$Policing_Area <-ifelse(accident_data_fin$Policing_Area %in% c("ANTN","ANTR","ARBC","ARDS","ARMA"), "R_1",
+                                ifelse(accident_data_fin$Policing_Area %in% c("ARND","BANB","BELC","BELE","BELN"), "R_2",
+                                          ifelse(accident_data_fin$Policing_Area %in% c("BELS","BELW","BMEN","BMON","CCGL"), "R_3",
+                                                ifelse(accident_data_fin$Policing_Area %in% c("CFER","COLE","COOK","CRAI","CREA"), "R_4",
+                                                       ifelse(accident_data$Policing_Area %in% c("DAST","DCST","DOWN","FERM","FERO"), "R_5",
+                                                              ifelse(accident_data$Policing_Area %in% c("FOYL","LARN","LIMA","LISB","LISC"), "R_6",
+                                                                ifelse(accident_data$Policing_Area %in% c("MEAN","MFEL","MIDU","MOYL","NABB"),"R_7","R_8")))))))
+
+accident_data_fin$Policing_Area <-as.factor(as.character(accident_data_fin$Policing_Area))
+
+
+
+
+
+```
+
+```{r}
+#accident_data_fin$Hour_of_Collision<-trunc(accident_data_fin$Hour_of_Collision)
+#accident_data_fin$Month_of_Collision<-trunc(accident_data_fin$Month_of_Collision)
+accident_data_fin$Junction_Detail<-as.factor(as.character(accident_data_fin$Junction_Detail))
+
+
+str(accident_data_fin$Collision_Severity)
+str(accident_data_fin$Hour_of_Collision)
+str(accident_data_fin$Month_of_Collision)
+str(accident_data_fin$Day_of_Collision)
+str(accident_data_fin$Weekday_of_Collision)
+str(accident_data_fin$Junction_Detail)
+str(accident_data_fin$Policing_Area)
+
+levels(accident_data_fin$Policing_Area)[1] = "missing"
+```
+
+
+
+
+```{R}
+accident_data_fin$Light_Conditions <- as.factor(as.character(accident_data_fin$Light_Conditions))
+accident_data_fin$Weather_Conditions <- as.factor(as.character(accident_data_fin$Weather_Conditions))
+accident_data_fin$Road_Surface_Conditions <- as.factor(as.character(accident_data_fin$Road_Surface_Conditions))
+accident_data_fin$Special.Conditions_at_Site <- as.factor(as.character(accident_data_fin$Special_Conditions_at_Site))
+
+
+accident_data_fin$Pedestrian_Crossing_Human_Control <- as.factor(as.character(accident_data_fin$Pedestrian_Crossing_Human_Control))
+accident_data_fin$Pedestrian_Crossing_Physical_Control <- as.factor(as.character(accident_data_fin$Pedestrian_Crossing_Physical_Control))
+
+
+accident_data_fin$Carriageway_Type <- as.factor(as.character(accident_data_fin$Carriageway_Type))
+accident_data_fin$Junction_Detail <- as.factor(as.character(accident_data_fin$Junction_Detail))
+#accident_data_fin$Junction_Control <- as.factor(as.character(accident_data_fin$Junction_Control))
+
+accident_data_fin$Speed_Limit <- as.factor(as.character(accident_data_fin$Speed_Limit))
+accident_data_fin$Carriageway_Type <-as.factor(as.character(accident_data_fin$Carriageway_Type))
+
+accident_data_fin$Junction_Control<-trunc(accident_data_fin$Junction_Control)
+accident_data_fin$Junction_Control<-as.factor(as.character(accident_data_fin$Junction_Control))
+
+
+
+
+
+```
+
+```{R}
+str(accident_data_fin)
+
+
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+######## BUILDUING MODEL ########
+
+library(C50)
+accident_data_fin$X<-NULL
+c5_tree <- C5.0(Collision_Severity ~ .,accident_data_fin)
+
+c5_rules <- C5.0(Collision_Severity ~ .,accident_data_fin, rules = T)
+
+
+
+```
+
+
+
+```{r}
+summary(c5_tree)
+summary(c5_rules)
+#View(accident_data_fin)
+```
+
+
+
+```
+
+```{r}
+
+
+```
+```{r}
+
+
+```
+
+```{r}
+
+```
+
+```{R}
+
+
+```
+
+```{r}
+
+```

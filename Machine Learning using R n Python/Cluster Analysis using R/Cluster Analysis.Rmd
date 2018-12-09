@@ -1,0 +1,206 @@
+---
+title: "Cluster Analysis for Crime Data"
+author: "Clustering INSOFE Lab Assignment"
+date: "05 Nov 2017"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+**NOTE** Before starting this assignment please remember to clear your environment, you can do that by running the following code chunk
+
+```{r}
+
+
+```
+
+# Agenda
+
+* Get the data
+
+* Data pre-processing
+
+* Explore the data
+
+* Hierarchical Clustering
+
+* Kmeans Clustering
+
+* Visualising Clusters and Evaluation
+
+
+# Problem Description
+
+* In the following Unsupervised Learning activity, you will perform cluster analysis on a dataset that has arrests per 100,000 residents for assault, murder, and rape in each of the 50 US states
+
+* The variable names in the dataset are self explanatory
+
+* So, you will cluster US states based on the crime rates, which can then be passed on to public policy experts to gain insight from it
+
+
+# Reading & Understanding the Data
+
+* Read in the dataset
+
+```{r}
+
+# Use the setwd() function to get to the directory where the data is present
+
+
+
+```
+
+* Use the str() and summary() functions to get a feel for the dataset.
+
+```{r}
+
+
+
+```
+
+* Take a look at the data using the "head()" and "tail()" functions
+
+```{r}
+
+
+
+```
+
+# Data pre-processing
+
+* Check for the number of missing values in the dataset
+
+```{r}
+
+
+
+
+```
+
+
+* Convert the State names into row names and remove that variable from the dataset
+
+```{r}
+
+
+
+
+
+```
+
+* Standardize and scale the data
+
+```{r}
+
+
+
+```
+
+# Data exploration
+
+* Visualise the distances between the individual observations using the fviz_dist()
+
+```{r, fig.width=12, fig.height=8}
+
+
+
+
+
+
+
+
+```
+
+# Hierarchical Clustering
+
+* Cluster the data using the Ward algorithm
+
+```{r}
+
+
+
+
+
+
+```
+
+* Plot the dendogram for hierarchical clustering
+
+```{r, fig.height=5, fig.width=10}
+
+
+
+```
+
+* Cut the tree to 4 clusters
+
+```{r}
+
+
+
+
+
+
+
+
+
+```
+
+* Plot a new dendogram, with each of the clusters being surrounded by a border, using the rect.hclust() function
+
+```{r, fig.height=5, fig.width=10}
+
+
+
+
+
+```
+
+
+# K-Means Clustering
+
+* Build a basic kmeans model with k = 2
+
+```{r}
+
+
+
+
+
+```
+
+* Build a scree plot and choose a "k"
+
+```{r}
+
+
+
+
+
+
+
+
+
+
+```
+
+* Choose a k and cluster the data
+
+```{r}
+
+# We can choose a k = 4, 5 or 6
+
+
+
+```
+
+* Visualise the clusters by plotting the data points on the first two principal components
+
+```{r, fig.height=5, fig.width=8}
+
+
+
+```
+
